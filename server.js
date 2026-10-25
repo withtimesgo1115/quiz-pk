@@ -8,11 +8,13 @@ const {
   findOrCreateUser,
   getUserById,
   getRandomQuestions,
+  getRandomQuestionsAll,
   getCategories,
   createGameRoom,
   updateGameResult,
   incrementUserGames,
   getLeaderboard,
+  getRank,
 } = require('./database');
 
 initializeDatabase();
@@ -37,6 +39,7 @@ const activeGames    = new Map();   // roomId → Game
 const QUESTION_TIME   = 15;         // seconds per question
 const QUESTIONS_PER_GAME = 5;
 const MATCH_TIMEOUT   = 30000;      // ms
+const RANDOM_CATEGORY = '随机模式';
 
 // ── REST API ───────────────────────────────────────────────────────
 app.get('/api/categories', (_req, res) => {
@@ -95,7 +98,13 @@ function removeFromQueue(socketId) {
 // ── Game lifecycle ─────────────────────────────────────────────────
 function createGame(p1, p2, category) {
   const roomId = uuidv4();
-  const rawQuestions = getRandomQuestions(category, QUESTIONS_PER_GAME);
+  let rawQuestions;
+
+  if (category === RANDOM_CATEGORY) {
+    rawQuestions = getRandomQuestionsAll(QUESTIONS_PER_GAME);
+  } else {
+    rawQuestions = getRandomQuestions(category, QUESTIONS_PER_GAME);
+  }
 
   if (rawQuestions.length < QUESTIONS_PER_GAME) {
     io.to(p1.socketId).emit('match_error', { message: '题目不足，请重试' });
@@ -108,9 +117,13 @@ function createGame(p1, p2, category) {
     text: q.question_text,
     options: JSON.parse(q.options),
     correctAnswer: q.correct_answer,
+    category: q.category,
   }));
 
   createGameRoom(roomId, p1.userId, p2.userId, category);
+
+  const p1User = getUserById(p1.userId);
+  const p2User = getUserById(p2.userId);
 
   const game = {
     id: roomId,
@@ -127,8 +140,21 @@ function createGame(p1, p2, category) {
 
   activeGames.set(roomId, game);
 
-  io.to(p1.socketId).emit('matched', { opponent: p2.nickname, roomId, totalQuestions: QUESTIONS_PER_GAME });
-  io.to(p2.socketId).emit('matched', { opponent: p1.nickname, roomId, totalQuestions: QUESTIONS_PER_GAME });
+  const p1Rank = getRank(p1User.games_played, p1User.games_won);
+  const p2Rank = getRank(p2User.games_played, p2User.games_won);
+
+  io.to(p1.socketId).emit('matched', {
+    opponent: p2.nickname,
+    opponentRank: p2Rank,
+    roomId,
+    totalQuestions: QUESTIONS_PER_GAME,
+  });
+  io.to(p2.socketId).emit('matched', {
+    opponent: p1.nickname,
+    opponentRank: p1Rank,
+    roomId,
+    totalQuestions: QUESTIONS_PER_GAME,
+  });
 
   setTimeout(() => sendQuestion(roomId, 0), 2000);
 }
@@ -142,11 +168,14 @@ function sendQuestion(roomId, index) {
   game.questionStartTime = Date.now();
 
   const q = game.questions[index];
+  const isLast = index === QUESTIONS_PER_GAME - 1;
   const payload = {
     index,
     text: q.text,
     options: q.options,
     totalTime: QUESTION_TIME,
+    isLast,
+    category: q.category,
   };
 
   game.players.forEach(p => {
@@ -180,12 +209,16 @@ function processAnswer(roomId, socketId, questionIndex, optionIndex) {
   const answerTime = Date.now() - game.questionStartTime;
   const q = game.questions[questionIndex];
   const correct = optionIndex === q.correctAnswer;
-  const score = calculateScore(answerTime, correct);
+  let score = calculateScore(answerTime, correct);
+
+  // Last question doubles the score
+  const isLast = questionIndex === QUESTIONS_PER_GAME - 1;
+  if (isLast) score *= 2;
 
   player.currentAnswer = { optionIndex, correct, score, answerTime };
   player.score += score;
 
-  io.to(socketId).emit('answer_ack', { questionIndex, correct, score, totalScore: player.score });
+  io.to(socketId).emit('answer_ack', { questionIndex, correct, score, totalScore: player.score, isLast });
 
   const opponent = game.players.find(p => p.socketId !== socketId);
   if (opponent) io.to(opponent.socketId).emit('opponent_answered', { questionIndex });
@@ -202,6 +235,7 @@ function emitQuestionResult(roomId) {
 
   const [p1, p2] = game.players;
   const q = game.questions[game.currentQuestion];
+  const isLast = game.currentQuestion === QUESTIONS_PER_GAME - 1;
 
   const resultPayload = {
     questionIndex: game.currentQuestion,
@@ -212,6 +246,7 @@ function emitQuestionResult(roomId) {
     opponentAnswer: p2.currentAnswer ? p2.currentAnswer.optionIndex : -1,
     playerCorrect: p1.currentAnswer ? p1.currentAnswer.correct : false,
     opponentCorrect: p2.currentAnswer ? p2.currentAnswer.correct : false,
+    isLast,
   };
 
   io.to(p1.socketId).emit('question_result', resultPayload);
@@ -245,11 +280,18 @@ function finishGame(roomId) {
   incrementUserGames(p1.userId, p1.score > p2.score);
   incrementUserGames(p2.userId, p2.score > p1.score);
 
+  const p1User = getUserById(p1.userId);
+  const p2User = getUserById(p2.userId);
+  const p1Rank = getRank(p1User.games_played, p1User.games_won);
+  const p2Rank = getRank(p2User.games_played, p2User.games_won);
+
   io.to(p1.socketId).emit('game_over', {
     playerScore: p1.score,
     opponentScore: p2.score,
     result: p1.score > p2.score ? 'win' : p1.score < p2.score ? 'lose' : 'draw',
     opponentNickname: p2.nickname,
+    playerRank: p1Rank,
+    opponentRank: p2Rank,
   });
 
   io.to(p2.socketId).emit('game_over', {
@@ -257,6 +299,8 @@ function finishGame(roomId) {
     opponentScore: p1.score,
     result: p2.score > p1.score ? 'win' : p2.score < p1.score ? 'lose' : 'draw',
     opponentNickname: p1.nickname,
+    playerRank: p2Rank,
+    opponentRank: p1Rank,
   });
 
   activeGames.delete(roomId);
@@ -275,9 +319,10 @@ io.on('connection', (socket) => {
       socket.emit('set_cookie', { userId });
     }
 
-    findOrCreateUser(userId, nickname);
+    const user = findOrCreateUser(userId, nickname);
+    const rank = getRank(user.games_played, user.games_won);
     connectedUsers.set(socket.id, { userId, nickname });
-    socket.emit('auth_success', { userId, nickname });
+    socket.emit('auth_success', { userId, nickname, rank });
   });
 
   socket.on('select_category', (data) => {
@@ -285,7 +330,7 @@ io.on('connection', (socket) => {
     if (!user) return;
 
     const categories = getCategories().map(c => c.category);
-    if (!categories.includes(data.category)) return;
+    if (data.category !== RANDOM_CATEGORY && !categories.includes(data.category)) return;
 
     removeFromQueue(socket.id);
     addToQueue(socket.id, user.userId, user.nickname, data.category);

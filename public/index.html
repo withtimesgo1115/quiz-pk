@@ -14,6 +14,11 @@
       <div class="home-container">
         <h1 class="game-title">知识PK</h1>
         <p class="subtitle">实时对战知识问答</p>
+        <div id="user-rank-display" class="user-rank-display hidden">
+          <span class="rank-icon" id="home-rank-icon"></span>
+          <span class="rank-name" id="home-rank-name"></span>
+          <span class="rank-stats" id="home-rank-stats"></span>
+        </div>
         <div class="nickname-input-group">
           <input type="text" id="nickname-input" placeholder="输入你的昵称" maxlength="8">
           <button id="btn-enter" class="btn btn-primary">进入</button>
@@ -38,11 +43,13 @@
           <div class="matching-player">
             <div class="avatar" id="matching-avatar-me"></div>
             <span id="matching-name-me"></span>
+            <span class="rank-badge-small" id="matching-rank-me"></span>
           </div>
           <span class="vs-text">VS</span>
           <div class="matching-player">
             <div class="avatar matching-opponent" id="matching-avatar-opponent">?</div>
             <span id="matching-name-opponent">等待中...</span>
+            <span class="rank-badge-small" id="matching-rank-opponent"></span>
           </div>
         </div>
         <button id="btn-cancel-match" class="btn btn-outline">取消匹配</button>
@@ -56,11 +63,13 @@
           <div class="avatar-small" id="game-avatar-me"></div>
           <div class="score-info">
             <span class="player-name" id="game-name-me"></span>
+            <span class="rank-badge-tiny" id="game-rank-me"></span>
             <span class="score-value" id="game-score-me">0</span>
           </div>
         </div>
         <div class="game-center">
           <div class="question-counter" id="question-counter">1/5</div>
+          <div id="double-score-badge" class="double-score-badge hidden">双倍题!</div>
           <div class="timer-container">
             <svg class="timer-svg" viewBox="0 0 100 100">
               <circle class="timer-bg" cx="50" cy="50" r="45"/>
@@ -72,6 +81,7 @@
         <div class="player-score player-right">
           <div class="score-info score-info-right">
             <span class="player-name" id="game-name-opponent"></span>
+            <span class="rank-badge-tiny" id="game-rank-opponent"></span>
             <span class="score-value" id="game-score-opponent">0</span>
           </div>
           <div class="avatar-small" id="game-avatar-opponent"></div>
@@ -89,6 +99,7 @@
 
       <div class="question-container">
         <div class="question-card">
+          <span class="question-category-tag" id="question-category-tag"></span>
           <h3 id="question-text" class="question-text"></h3>
         </div>
         <div id="options-container" class="options-container"></div>
@@ -97,6 +108,7 @@
       <div id="answer-result-overlay" class="answer-result-overlay hidden">
         <div class="result-icon" id="result-icon"></div>
         <div class="result-score" id="result-score"></div>
+        <div class="result-double" id="result-double"></div>
       </div>
     </div>
 
@@ -112,12 +124,14 @@
           <div class="result-player">
             <div class="avatar" id="result-avatar-me"></div>
             <span id="result-name-me"></span>
+            <span class="rank-badge-small" id="result-rank-me"></span>
             <span class="final-score" id="result-score-me">0</span>
           </div>
           <span class="result-vs">:</span>
           <div class="result-player">
             <div class="avatar" id="result-avatar-opponent"></div>
             <span id="result-name-opponent"></span>
+            <span class="rank-badge-small" id="result-rank-opponent"></span>
             <span class="final-score" id="result-score-opponent">0</span>
           </div>
         </div>

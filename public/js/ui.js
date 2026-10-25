@@ -83,3 +83,9 @@ function showConfetti() {
   }
   setTimeout(() => { container.innerHTML = ''; }, 5000);
 }
+
+// ── Rank badge ─────────────────────────────────────────
+function renderRankBadge(el, rank) {
+  if (!el || !rank) return;
+  el.textContent = rank.icon + ' ' + rank.name;
+}

@@ -77,6 +77,13 @@ function getRandomQuestions(category, count) {
   ).all(category, count);
 }
 
+function getRandomQuestionsAll(count) {
+  const db = getDb();
+  return db.prepare(
+    'SELECT * FROM questions ORDER BY RANDOM() LIMIT ?'
+  ).all(count);
+}
+
 function getCategories() {
   const db = getDb();
   const rows = db.prepare(
@@ -115,9 +122,29 @@ function incrementUserGames(userId, won) {
   }
 }
 
+const RANK_TIERS = [
+  { name: '王者', icon: '👑', minRate: 95 },
+  { name: '宗师', icon: '🏆', minRate: 85 },
+  { name: '大师', icon: '💎', minRate: 75 },
+  { name: '钻石', icon: '💠', minRate: 65 },
+  { name: '铂金', icon: '🔮', minRate: 55 },
+  { name: '黄金', icon: '🥇', minRate: 40 },
+  { name: '白银', icon: '🥈', minRate: 25 },
+  { name: '青铜', icon: '🥉', minRate: 0 },
+];
+
+function getRank(gamesPlayed, gamesWon) {
+  if (gamesPlayed < 5) return { name: '未定级', icon: '⬜' };
+  const winRate = (gamesWon / gamesPlayed) * 100;
+  for (const tier of RANK_TIERS) {
+    if (winRate >= tier.minRate) return { name: tier.name, icon: tier.icon };
+  }
+  return { name: '青铜', icon: '🥉' };
+}
+
 function getLeaderboard(limit = 20) {
   const db = getDb();
-  return db.prepare(`
+  const rows = db.prepare(`
     SELECT nickname, games_played, games_won,
            CASE WHEN games_played > 0
                 THEN ROUND(CAST(games_won AS FLOAT) / games_played * 100, 1)
@@ -127,6 +154,7 @@ function getLeaderboard(limit = 20) {
     ORDER BY games_won DESC, win_rate DESC
     LIMIT ?
   `).all(limit);
+  return rows.map(r => ({ ...r, rank: getRank(r.games_played, r.games_won) }));
 }
 
 module.exports = {
@@ -135,9 +163,11 @@ module.exports = {
   findOrCreateUser,
   getUserById,
   getRandomQuestions,
+  getRandomQuestionsAll,
   getCategories,
   createGameRoom,
   updateGameResult,
   incrementUserGames,
   getLeaderboard,
+  getRank,
 };

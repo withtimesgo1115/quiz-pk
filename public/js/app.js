@@ -23,6 +23,8 @@ class App {
     this.totalQ = 5;
     this.answered = false;
     this.categories = [];
+    this.myRank = null;
+    this.oppRank = null;
 
     this._init();
   }
@@ -50,7 +52,7 @@ class App {
 
   _renderCategories() {
     const grid = document.getElementById('category-grid');
-    grid.innerHTML = this.categories.map((cat, i) => {
+    let html = this.categories.map((cat, i) => {
       const icon = CATEGORY_ICONS[cat.category] || '📖';
       const grad = CATEGORY_GRADIENTS[i % CATEGORY_GRADIENTS.length];
       return '<div class="category-card disabled" data-category="' + this._esc(cat.category) + '" style="background:' + grad + '20;border-color:' + grad + '40">'
@@ -59,6 +61,14 @@ class App {
         + '<div style="font-size:12px;color:var(--text-secondary);margin-top:4px">' + cat.count + ' 题</div>'
         + '</div>';
     }).join('');
+
+    html += '<div class="category-card random-mode disabled" data-category="随机模式">'
+      + '<div class="category-icon">🎲</div>'
+      + '<div class="category-name">随机模式</div>'
+      + '<div style="font-size:12px;color:var(--text-secondary);margin-top:4px">全分类混合出题</div>'
+      + '</div>';
+
+    grid.innerHTML = html;
   }
 
   _bindUI() {
@@ -117,7 +127,9 @@ class App {
     quizSocket.on('auth_success', data => {
       this.userId = data.userId;
       localStorage.setItem('quiz_uid', data.userId);
+      this.myRank = data.rank;
       document.querySelectorAll('.category-card').forEach(c => c.classList.remove('disabled'));
+      this._updateHomeRank();
     });
 
     quizSocket.on('auth_error', data => {
@@ -126,11 +138,13 @@ class App {
 
     quizSocket.on('waiting', () => {
       const el = document.getElementById('matching-category');
-      if (el) el.textContent = '正在等待对手选择「' + this.category + '」...';
+      const label = this.category === '随机模式' ? '随机模式' : '「' + this.category + '」';
+      if (el) el.textContent = '正在等待对手选择' + label + '...';
     });
 
     quizSocket.on('matched', data => {
       this.opponent = data.opponent;
+      this.oppRank = data.opponentRank;
       this.totalQ = data.totalQuestions;
       const nameEl = document.getElementById('matching-name-opponent');
       const avatarEl = document.getElementById('matching-avatar-opponent');
@@ -139,6 +153,7 @@ class App {
         avatarEl.classList.remove('matching-opponent');
         renderAvatar(avatarEl, data.opponent);
       }
+      renderRankBadge(document.getElementById('matching-rank-opponent'), data.opponentRank);
       setTimeout(() => this._go(GameState.PLAYING), 1200);
     });
 
@@ -163,7 +178,7 @@ class App {
       this.answered = true;
       this.myScore = data.totalScore;
       this._updateScores();
-      this._showAnswerResult(data.correct, data.score);
+      this._showAnswerResult(data.correct, data.score, data.isLast);
       const bar = document.getElementById('progress-me');
       bar.className = 'progress-bar ' + (data.correct ? 'correct' : 'wrong');
     });
@@ -186,6 +201,8 @@ class App {
     });
 
     quizSocket.on('game_over', data => {
+      this.myRank = data.playerRank;
+      this.oppRank = data.opponentRank;
       this._showResult(data);
       this._go(GameState.RESULT);
     });
@@ -207,24 +224,54 @@ class App {
     showScreen(map[state]);
 
     if (state === GameState.MATCHING) {
-      document.getElementById('matching-category').textContent = '正在寻找「' + this._esc(this.category) + '」的对手...';
+      const label = this.category === '随机模式' ? '随机模式' : '「' + this.category + '」';
+      document.getElementById('matching-category').textContent = '正在寻找' + label + '的对手...';
       renderAvatar(document.getElementById('matching-avatar-me'), this.nickname);
       document.getElementById('matching-name-me').textContent = this.nickname;
+      renderRankBadge(document.getElementById('matching-rank-me'), this.myRank);
       const oppAvatar = document.getElementById('matching-avatar-opponent');
       oppAvatar.className = 'avatar matching-opponent';
       oppAvatar.textContent = '?';
       oppAvatar.style.backgroundColor = '';
       document.getElementById('matching-name-opponent').textContent = '等待中...';
+      document.getElementById('matching-rank-opponent').textContent = '';
     }
 
     if (state === GameState.HOME) {
       this._loadCategories();
+      this._updateHomeRank();
+    }
+  }
+
+  _updateHomeRank() {
+    const display = document.getElementById('user-rank-display');
+    if (this.myRank && display) {
+      display.classList.remove('hidden');
+      document.getElementById('home-rank-icon').textContent = this.myRank.icon;
+      document.getElementById('home-rank-name').textContent = this.myRank.name;
     }
   }
 
   _renderQuestion(data) {
     document.getElementById('question-counter').textContent = (data.index + 1) + '/' + this.totalQ;
     document.getElementById('question-text').textContent = data.text;
+
+    // Category tag
+    const catTag = document.getElementById('question-category-tag');
+    if (catTag && data.category) {
+      catTag.textContent = data.category;
+      catTag.style.display = '';
+    }
+
+    // Double score badge
+    const doubleBadge = document.getElementById('double-score-badge');
+    if (doubleBadge) {
+      if (data.isLast) {
+        doubleBadge.classList.remove('hidden');
+      } else {
+        doubleBadge.classList.add('hidden');
+      }
+    }
 
     const container = document.getElementById('options-container');
     const labels = ['A', 'B', 'C', 'D'];
@@ -260,11 +307,15 @@ class App {
     document.getElementById('game-score-opponent').textContent = this.oppScore;
   }
 
-  _showAnswerResult(correct, score) {
+  _showAnswerResult(correct, score, isLast) {
     const overlay = document.getElementById('answer-result-overlay');
     document.getElementById('result-icon').textContent = correct ? '✓' : '✗';
     document.getElementById('result-icon').style.color = correct ? 'var(--correct-color)' : 'var(--wrong-color)';
     document.getElementById('result-score').textContent = correct ? '+' + score : '+0';
+    const doubleEl = document.getElementById('result-double');
+    if (doubleEl) {
+      doubleEl.textContent = isLast ? '双倍!' : '';
+    }
     overlay.classList.remove('hidden');
     setTimeout(() => overlay.classList.add('hidden'), 1200);
   }
@@ -302,6 +353,9 @@ class App {
     document.getElementById('result-name-opponent').textContent = data.opponentNickname;
     document.getElementById('result-score-me').textContent = data.playerScore;
     document.getElementById('result-score-opponent').textContent = data.opponentScore;
+
+    renderRankBadge(document.getElementById('result-rank-me'), data.playerRank);
+    renderRankBadge(document.getElementById('result-rank-opponent'), data.opponentRank);
   }
 
   async _showLeaderboard() {
@@ -314,10 +368,11 @@ class App {
       } else {
         list.innerHTML = data.map((item, i) => {
           const rankClass = i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : '';
+          const rankBadge = item.rank ? item.rank.icon + ' ' + item.rank.name : '';
           return '<div class="leaderboard-item">'
             + '<div class="leaderboard-rank ' + rankClass + '">' + (i + 1) + '</div>'
             + '<div class="leaderboard-info">'
-            + '<div class="leaderboard-name">' + this._esc(item.nickname) + '</div>'
+            + '<div class="leaderboard-name">' + this._esc(item.nickname) + ' <span style="font-size:11px;color:var(--text-secondary)">' + rankBadge + '</span></div>'
             + '<div class="leaderboard-stats">' + item.games_won + '胜 / ' + item.games_played + '场 (' + item.win_rate + '%)</div>'
             + '</div></div>';
         }).join('');

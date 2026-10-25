@@ -482,6 +482,87 @@ body {
 .leaderboard-name { font-weight: 600; font-size: 14px; }
 .leaderboard-stats { font-size: 12px; color: var(--text-secondary); }
 
+/* ── Rank badges ─────────────────────────────────────── */
+.user-rank-display {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 8px 16px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 20px;
+  backdrop-filter: blur(10px);
+}
+.user-rank-display.hidden { display: none; }
+.rank-icon { font-size: 20px; }
+.rank-name { font-weight: 700; font-size: 14px; }
+.rank-stats { font-size: 12px; color: var(--text-secondary); }
+
+.rank-badge-small {
+  display: inline-block;
+  font-size: 12px;
+  padding: 2px 8px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  margin-top: 4px;
+}
+.rank-badge-tiny {
+  display: inline-block;
+  font-size: 10px;
+  padding: 1px 6px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 8px;
+}
+
+/* ── Double score badge ──────────────────────────────── */
+.double-score-badge {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 800;
+  color: #ffd740;
+  background: rgba(255, 215, 64, 0.15);
+  border: 1px solid rgba(255, 215, 64, 0.4);
+  border-radius: 10px;
+  padding: 2px 10px;
+  margin-bottom: 4px;
+  animation: doublePulse 1s ease-in-out infinite;
+}
+.double-score-badge.hidden { display: none; }
+@keyframes doublePulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+}
+.result-double {
+  font-size: 16px;
+  font-weight: 700;
+  color: #ffd740;
+  margin-top: 4px;
+}
+
+/* ── Question category tag ───────────────────────────── */
+.question-category-tag {
+  display: inline-block;
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: rgba(255,255,255,0.08);
+  border-radius: 8px;
+  padding: 2px 8px;
+  margin-bottom: 8px;
+}
+
+/* ── Random mode card ────────────────────────────────── */
+.category-card.random-mode {
+  grid-column: 1 / -1;
+  background: linear-gradient(135deg, rgba(255,215,64,0.15), rgba(255,107,107,0.15));
+  border-color: rgba(255,215,64,0.3);
+}
+.category-card.random-mode:hover {
+  border-color: rgba(255,215,64,0.6);
+}
+
 /* ── Responsive ──────────────────────────────────────── */
 @media (max-width: 480px) {
   .game-title { font-size: 36px; }
