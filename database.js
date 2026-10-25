@@ -134,7 +134,7 @@ const RANK_TIERS = [
 ];
 
 function getRank(gamesPlayed, gamesWon) {
-  if (gamesPlayed < 5) return { name: '未定级', icon: '⬜' };
+  if (gamesPlayed === 0) return { name: '未定级', icon: '⬜' };
   const winRate = (gamesWon / gamesPlayed) * 100;
   for (const tier of RANK_TIERS) {
     if (winRate >= tier.minRate) return { name: tier.name, icon: tier.icon };

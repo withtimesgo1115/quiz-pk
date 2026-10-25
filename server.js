@@ -59,7 +59,9 @@ function calculateScore(answerTimeMs, isCorrect) {
 }
 
 // ── Matching ───────────────────────────────────────────────────────
-function addToQueue(socketId, userId, nickname, category) {
+const BOT_NAMES = ['小学霸', '答题达人', '知识王者', '百科博士', '刷题高手', '学霸联盟', '答题小能手', '知识星球'];
+
+function addToQueue(socketId, userId, nickname, category, mode) {
   if (!matchingQueue.has(category)) matchingQueue.set(category, []);
   const queue = matchingQueue.get(category);
 
@@ -71,17 +73,47 @@ function addToQueue(socketId, userId, nickname, category) {
     }
   }, MATCH_TIMEOUT);
 
-  queue.push({ socketId, userId, nickname, timer });
+  const player = { socketId, userId, nickname, timer, mode };
+  queue.push(player);
 
-  if (queue.length >= 2) {
-    const p1 = queue.shift();
-    const p2 = queue.shift();
-    clearTimeout(p1.timer);
-    clearTimeout(p2.timer);
-    createGame(p1, p2, category);
-  } else {
+  // Single player mode: spawn bot after 3 seconds if no human found
+  if (mode === 'single') {
+    player.botTimer = setTimeout(() => {
+      const idx = queue.findIndex(p => p.socketId === socketId);
+      if (idx !== -1) {
+        queue.splice(idx, 1);
+        clearTimeout(timer);
+        spawnBot(player, category);
+      }
+    }, 3000);
+  } else if (queue.length >= 2) {
+    // Find two human players
+    const humans = queue.filter(p => p.mode !== 'single' || !p.botTimer);
+    if (humans.length >= 2) {
+      const p1 = humans[0];
+      const p2 = humans[1];
+      queue.splice(queue.indexOf(p1), 1);
+      queue.splice(queue.indexOf(p2), 1);
+      clearTimeout(p1.timer);
+      clearTimeout(p2.timer);
+      createGame(p1, p2, category);
+    }
+  }
+
+  if (queue.length < 2 || mode === 'single') {
     io.to(socketId).emit('waiting');
   }
+}
+
+function spawnBot(player, category) {
+  const botName = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)];
+  const botPlayer = {
+    socketId: 'bot_' + player.userId,
+    userId: 'bot_' + player.userId,
+    nickname: botName,
+    isBot: true,
+  };
+  createGame(player, botPlayer, category);
 }
 
 function removeFromQueue(socketId) {
@@ -89,6 +121,7 @@ function removeFromQueue(socketId) {
     const idx = queue.findIndex(p => p.socketId === socketId);
     if (idx !== -1) {
       clearTimeout(queue[idx].timer);
+      clearTimeout(queue[idx].botTimer);
       queue.splice(idx, 1);
       return;
     }
@@ -107,8 +140,8 @@ function createGame(p1, p2, category) {
   }
 
   if (rawQuestions.length < QUESTIONS_PER_GAME) {
-    io.to(p1.socketId).emit('match_error', { message: '题目不足，请重试' });
-    io.to(p2.socketId).emit('match_error', { message: '题目不足，请重试' });
+    if (!p1.isBot) io.to(p1.socketId).emit('match_error', { message: '题目不足，请重试' });
+    if (!p2.isBot) io.to(p2.socketId).emit('match_error', { message: '题目不足，请重试' });
     return;
   }
 
@@ -120,41 +153,50 @@ function createGame(p1, p2, category) {
     category: q.category,
   }));
 
-  createGameRoom(roomId, p1.userId, p2.userId, category);
+  const hasBot = p1.isBot || p2.isBot;
+  if (!hasBot) {
+    createGameRoom(roomId, p1.userId, p2.userId, category);
+  }
 
-  const p1User = getUserById(p1.userId);
-  const p2User = getUserById(p2.userId);
+  const p1User = p1.isBot ? null : getUserById(p1.userId);
+  const p2User = p2.isBot ? null : getUserById(p2.userId);
 
   const game = {
     id: roomId,
     category,
+    hasBot,
     players: [
-      { socketId: p1.socketId, userId: p1.userId, nickname: p1.nickname, score: 0, currentAnswer: null },
-      { socketId: p2.socketId, userId: p2.userId, nickname: p2.nickname, score: 0, currentAnswer: null },
+      { socketId: p1.socketId, userId: p1.userId, nickname: p1.nickname, score: 0, currentAnswer: null, isBot: !!p1.isBot },
+      { socketId: p2.socketId, userId: p2.userId, nickname: p2.nickname, score: 0, currentAnswer: null, isBot: !!p2.isBot },
     ],
     questions,
     currentQuestion: 0,
     questionStartTime: null,
     questionTimer: null,
+    botTimers: [],
   };
 
   activeGames.set(roomId, game);
 
-  const p1Rank = getRank(p1User.games_played, p1User.games_won);
-  const p2Rank = getRank(p2User.games_played, p2User.games_won);
+  const p1Rank = p1.isBot ? { name: '青铜', icon: '🥉' } : getRank(p1User.games_played, p1User.games_won);
+  const p2Rank = p2.isBot ? { name: '青铜', icon: '🥉' } : getRank(p2User.games_played, p2User.games_won);
 
-  io.to(p1.socketId).emit('matched', {
-    opponent: p2.nickname,
-    opponentRank: p2Rank,
-    roomId,
-    totalQuestions: QUESTIONS_PER_GAME,
-  });
-  io.to(p2.socketId).emit('matched', {
-    opponent: p1.nickname,
-    opponentRank: p1Rank,
-    roomId,
-    totalQuestions: QUESTIONS_PER_GAME,
-  });
+  if (!p1.isBot) {
+    io.to(p1.socketId).emit('matched', {
+      opponent: p2.nickname,
+      opponentRank: p2Rank,
+      roomId,
+      totalQuestions: QUESTIONS_PER_GAME,
+    });
+  }
+  if (!p2.isBot) {
+    io.to(p2.socketId).emit('matched', {
+      opponent: p1.nickname,
+      opponentRank: p1Rank,
+      roomId,
+      totalQuestions: QUESTIONS_PER_GAME,
+    });
+  }
 
   setTimeout(() => sendQuestion(roomId, 0), 2000);
 }
@@ -179,7 +221,25 @@ function sendQuestion(roomId, index) {
   };
 
   game.players.forEach(p => {
-    io.to(p.socketId).emit('question', payload);
+    if (!p.isBot) io.to(p.socketId).emit('question', payload);
+  });
+
+  // Schedule bot answers
+  game.botTimers.forEach(t => clearTimeout(t));
+  game.botTimers = [];
+  game.players.filter(p => p.isBot).forEach(bot => {
+    const delay = 2000 + Math.random() * 6000; // 2-8 seconds
+    const t = setTimeout(() => {
+      const currentGame = activeGames.get(roomId);
+      if (!currentGame || currentGame.currentQuestion !== index) return;
+      if (bot.currentAnswer !== null) return;
+      const correct = Math.random() < 0.6; // 60% accuracy
+      const optionIndex = correct
+        ? q.correctAnswer
+        : [0, 1, 2, 3].filter(i => i !== q.correctAnswer)[Math.floor(Math.random() * 3)];
+      processAnswer(roomId, bot.socketId, index, optionIndex);
+    }, delay);
+    game.botTimers.push(t);
   });
 
   game.questionTimer = setTimeout(() => handleTimeUp(roomId), QUESTION_TIME * 1000);
@@ -218,10 +278,14 @@ function processAnswer(roomId, socketId, questionIndex, optionIndex) {
   player.currentAnswer = { optionIndex, correct, score, answerTime };
   player.score += score;
 
-  io.to(socketId).emit('answer_ack', { questionIndex, correct, score, totalScore: player.score, isLast });
+  if (!player.isBot) {
+    io.to(socketId).emit('answer_ack', { questionIndex, correct, score, totalScore: player.score, isLast });
+  }
 
   const opponent = game.players.find(p => p.socketId !== socketId);
-  if (opponent) io.to(opponent.socketId).emit('opponent_answered', { questionIndex });
+  if (opponent && !opponent.isBot) {
+    io.to(opponent.socketId).emit('opponent_answered', { questionIndex });
+  }
 
   if (game.players.every(p => p.currentAnswer !== null)) {
     clearTimeout(game.questionTimer);
@@ -249,8 +313,8 @@ function emitQuestionResult(roomId) {
     isLast,
   };
 
-  io.to(p1.socketId).emit('question_result', resultPayload);
-  io.to(p2.socketId).emit('question_result', {
+  if (!p1.isBot) io.to(p1.socketId).emit('question_result', resultPayload);
+  if (!p2.isBot) io.to(p2.socketId).emit('question_result', {
     ...resultPayload,
     playerScore: p2.score,
     opponentScore: p1.score,
@@ -271,37 +335,47 @@ function finishGame(roomId) {
   const game = activeGames.get(roomId);
   if (!game) return;
 
+  // Clear bot timers
+  game.botTimers.forEach(t => clearTimeout(t));
+
   const [p1, p2] = game.players;
-  let winnerId = null;
-  if (p1.score > p2.score) winnerId = p1.userId;
-  else if (p2.score > p1.score) winnerId = p2.userId;
 
-  updateGameResult(roomId, p1.score, p2.score, winnerId);
-  incrementUserGames(p1.userId, p1.score > p2.score);
-  incrementUserGames(p2.userId, p2.score > p1.score);
+  if (!game.hasBot) {
+    let winnerId = null;
+    if (p1.score > p2.score) winnerId = p1.userId;
+    else if (p2.score > p1.score) winnerId = p2.userId;
 
-  const p1User = getUserById(p1.userId);
-  const p2User = getUserById(p2.userId);
-  const p1Rank = getRank(p1User.games_played, p1User.games_won);
-  const p2Rank = getRank(p2User.games_played, p2User.games_won);
+    updateGameResult(roomId, p1.score, p2.score, winnerId);
+    incrementUserGames(p1.userId, p1.score > p2.score);
+    incrementUserGames(p2.userId, p2.score > p1.score);
+  }
 
-  io.to(p1.socketId).emit('game_over', {
-    playerScore: p1.score,
-    opponentScore: p2.score,
-    result: p1.score > p2.score ? 'win' : p1.score < p2.score ? 'lose' : 'draw',
-    opponentNickname: p2.nickname,
-    playerRank: p1Rank,
-    opponentRank: p2Rank,
-  });
+  const p1User = p1.isBot ? null : getUserById(p1.userId);
+  const p2User = p2.isBot ? null : getUserById(p2.userId);
+  const p1Rank = p1.isBot ? { name: '青铜', icon: '🥉' } : getRank(p1User.games_played, p1User.games_won);
+  const p2Rank = p2.isBot ? { name: '青铜', icon: '🥉' } : getRank(p2User.games_played, p2User.games_won);
 
-  io.to(p2.socketId).emit('game_over', {
-    playerScore: p2.score,
-    opponentScore: p1.score,
-    result: p2.score > p1.score ? 'win' : p2.score < p1.score ? 'lose' : 'draw',
-    opponentNickname: p1.nickname,
-    playerRank: p2Rank,
-    opponentRank: p1Rank,
-  });
+  if (!p1.isBot) {
+    io.to(p1.socketId).emit('game_over', {
+      playerScore: p1.score,
+      opponentScore: p2.score,
+      result: p1.score > p2.score ? 'win' : p1.score < p2.score ? 'lose' : 'draw',
+      opponentNickname: p2.nickname,
+      playerRank: p1Rank,
+      opponentRank: p2Rank,
+    });
+  }
+
+  if (!p2.isBot) {
+    io.to(p2.socketId).emit('game_over', {
+      playerScore: p2.score,
+      opponentScore: p1.score,
+      result: p2.score > p1.score ? 'win' : p2.score < p1.score ? 'lose' : 'draw',
+      opponentNickname: p1.nickname,
+      playerRank: p2Rank,
+      opponentRank: p1Rank,
+    });
+  }
 
   activeGames.delete(roomId);
 }
@@ -333,7 +407,7 @@ io.on('connection', (socket) => {
     if (data.category !== RANDOM_CATEGORY && !categories.includes(data.category)) return;
 
     removeFromQueue(socket.id);
-    addToQueue(socket.id, user.userId, user.nickname, data.category);
+    addToQueue(socket.id, user.userId, user.nickname, data.category, data.mode || 'pvp');
   });
 
   socket.on('cancel_match', () => {

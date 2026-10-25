@@ -25,6 +25,7 @@ class App {
     this.categories = [];
     this.myRank = null;
     this.oppRank = null;
+    this.singleMode = false;
 
     this._init();
   }
@@ -82,8 +83,15 @@ class App {
       if (card && !card.classList.contains('disabled') && this.nickname) {
         this.category = card.dataset.category;
         this._go(GameState.MATCHING);
-        quizSocket.selectCategory(this.category);
+        quizSocket.selectCategory(this.category, this.singleMode ? 'single' : 'pvp');
       }
+    });
+
+    document.getElementById('btn-single-player').addEventListener('click', () => {
+      this.singleMode = !this.singleMode;
+      const btn = document.getElementById('btn-single-player');
+      btn.textContent = this.singleMode ? '单人模式 ✓' : '单人练习';
+      btn.style.opacity = this.singleMode ? '1' : '';
     });
 
     document.getElementById('btn-cancel-match').addEventListener('click', () => {
@@ -94,7 +102,7 @@ class App {
     document.getElementById('btn-play-again').addEventListener('click', () => {
       this.myScore = 0; this.oppScore = 0; this.qIndex = 0;
       this._go(GameState.MATCHING);
-      quizSocket.selectCategory(this.category);
+      quizSocket.selectCategory(this.category, this.singleMode ? 'single' : 'pvp');
     });
 
     document.getElementById('btn-back-home').addEventListener('click', () => {
@@ -274,28 +282,29 @@ class App {
     }
 
     const container = document.getElementById('options-container');
+    container.innerHTML = '';
     const labels = ['A', 'B', 'C', 'D'];
-    container.innerHTML = data.options.map((opt, i) =>
-      '<button class="option-btn" data-index="' + i + '">'
-      + '<span class="option-label">' + labels[i] + '</span>'
-      + '<span class="option-text">' + this._esc(opt) + '</span>'
-      + '</button>'
-    ).join('');
+    const fragment = document.createDocumentFragment();
+    data.options.forEach((opt, i) => {
+      const btn = document.createElement('button');
+      btn.className = 'option-btn';
+      btn.dataset.index = i;
+      btn.innerHTML = '<span class="option-label">' + labels[i] + '</span>'
+        + '<span class="option-text">' + this._esc(opt) + '</span>';
+      btn.addEventListener('click', () => {
+        if (this.answered) return;
+        quizSocket.answer(data.index, i);
+        container.querySelectorAll('.option-btn').forEach(b => b.classList.add('disabled'));
+        btn.classList.add('selected');
+      });
+      fragment.appendChild(btn);
+    });
+    container.appendChild(fragment);
 
     const circle = document.getElementById('timer-circle');
     circle.classList.remove('danger');
     circle.style.stroke = '';
     document.getElementById('timer-text').textContent = data.totalTime;
-
-    container.querySelectorAll('.option-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        if (this.answered) return;
-        const idx = parseInt(btn.dataset.index);
-        quizSocket.answer(data.index, idx);
-        container.querySelectorAll('.option-btn').forEach(b => b.classList.add('disabled'));
-        btn.classList.add('selected');
-      });
-    });
 
     document.getElementById('progress-me').className = 'progress-bar';
     document.getElementById('progress-opponent').className = 'progress-bar';

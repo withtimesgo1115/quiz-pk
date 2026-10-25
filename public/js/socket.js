@@ -18,7 +18,7 @@ class QuizSocket {
   }
 
   join(nickname, userId) { this.socket.emit('join', { nickname, userId }); }
-  selectCategory(category) { this.socket.emit('select_category', { category }); }
+  selectCategory(category, mode) { this.socket.emit('select_category', { category, mode: mode || 'pvp' }); }
   cancelMatch() { this.socket.emit('cancel_match'); }
   answer(questionIndex, optionIndex) { this.socket.emit('answer', { questionIndex, optionIndex }); }
 
